@@ -1,0 +1,11 @@
+alloc.c
+alloc.h
+Changes
+EPoll.xs
+lib/POE/XS/Loop/EPoll.pm
+Makefile.PL
+MANIFEST			This list of files
+MANIFEST.SKIP
+poexs.c
+poexs.h
+README

@@ -28,7 +28,7 @@ POE::XS::Loop::EPoll - an XS implementation of POE::Loop, using Linux` epoll(2).
 
 =head1 SYNOPSIS
 
-See POE::Loop.
+  use POE::Kernel { loop => 'POE::XS::Loop::EPoll' };
 
 =head1 DESCRIPTION
 
@@ -59,8 +59,7 @@ Tony Cook <tonyc@cpan.org>
 
 sub skip_tests {
   my $test = shift;
-  eval 'use POE::Kernel { loop => "POE::XS::Loop::EPoll" }; 1;'
-    or return "Could not load POE::Kernel with loop: $@";
+  $ENV{POE_EVENT_LOOP} = 'POE::XS::Loop::EPoll';
   $test eq 'wheel_readwrite'
     and return "epoll_ctl(2) doesn't work with plain files";
   return;

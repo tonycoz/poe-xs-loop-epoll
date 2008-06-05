@@ -18,6 +18,9 @@ poe_data_ev_dispatch_due(SV *kernel);
 extern void
 poe_test_if_kernel_idle(SV *kernel);
 
+extern int
+poe_data_ses_count(SV *kernel);
+
 extern const char *
 poe_mode_names(int mode);
 

@@ -9,7 +9,7 @@
 #include "alloc.h"
 #include "poexs.h"
 
-/*#define XS_LOOP_DEBUG*/
+#define XS_LOOP_DEBUG
 
 #if defined(MEM_DEBUG) || defined(XS_LOOP_DEBUG)
 /* sizes that should require re-allocation of the arrays */
@@ -21,12 +21,20 @@
 #define START_LOOKUP_ALLOC 100
 #endif
 
+#ifdef XS_LOOP_DEBUG
+static void _check_state_fl(char const *file, int line);
+#define _check_state() _check_state_fl(__FILE__, __LINE__)
+#else
+#define _check_state()
+#endif
+
+/* these functions don't need the kernel argument, do don't supply it */
 #define lpm_loop_resume_time_watcher(self, next_time) lp_loop_resume_time_watcher(next_time)
 #define lpm_loop_reset_time_watcher(self, next_time) lp_loop_reset_time_watcher(next_time)
 #define lpm_loop_watch_filehandle(self, handle, mode) lp_loop_watch_filehandle(handle, mode)
 #define lpm_loop_ignore_filehandle(self, handle, mode) lp_loop_ignore_filehandle(handle, mode)
-#define lpm_loop_pause_filehandle(self, handle, mode) lp_loop_ignore_filehandle(handle, mode)
-#define lpm_loop_resume_filehandle(self, handle, mode) lp_loop_watch_filehandle(handle, mode)
+#define lpm_loop_pause_filehandle(self, handle, mode) lp_loop_pause_filehandle(handle, mode)
+#define lpm_loop_resume_filehandle(self, handle, mode) lp_loop_resume_filehandle(handle, mode)
 
 /* no ops */
 #define lp_loop_attach_uidestroy(kernel)
@@ -35,9 +43,30 @@
 /* the next time-based event to be dispatched */
 static double lp_next_time;
 
+typedef struct {
+  int fd;
+
+  /* the events currently set with epoll_ctl() */
+  int current_events;
+
+  /* the events as set by watch/pause/resume */
+  int want_events;
+
+  /* whether we got an eperm adding this
+     this means it's a normal file, which we always return
+     readable/writable for
+  */
+  int eperm;
+} fd_state;
+
 static int epoll_fd = -1;
-static int *fd_modes;
-static int fd_mode_count;
+
+static fd_state *fds;
+static int fd_count;
+static int fd_alloc;
+
+static int *fd_lookup;
+static int fd_lookup_count;
 
 /* functions should be static, hopefully the compiler will inline them
    into the XS code */
@@ -54,10 +83,14 @@ lp_loop_initialize(SV *kernel) {
 
   lp_next_time = 0;
   epoll_fd = epoll_create(START_FD_ALLOC);
-  fd_modes = mymalloc(sizeof(*fd_modes) * START_LOOKUP_ALLOC);
-  fd_mode_count = START_LOOKUP_ALLOC;
-  for (i = 0; i < fd_mode_count; ++i) {
-    fd_modes[i] = 0;
+  fds = mymalloc(sizeof(*fds) * START_FD_ALLOC);
+  fd_count = 0;
+  fd_alloc = START_FD_ALLOC;
+
+  fd_lookup = mymalloc(sizeof(int) * START_LOOKUP_ALLOC);
+  fd_lookup_count = START_LOOKUP_ALLOC;
+  for (i = 0; i < fd_lookup_count; ++i) {
+    fd_lookup[i] = -1;
   }
 }
 
@@ -69,21 +102,73 @@ lp_loop_finalize(SV *kernel) {
     close(epoll_fd);
     epoll_fd = -1;
   }
-  myfree(fd_modes);
-  fd_modes = NULL;
+  myfree(fds);
+  fds = NULL;
+  myfree(fd_lookup);
+  fd_lookup = NULL;
 }
 
 static void
-_expand_fd_modes(int fd) {
+_expand_fd_lookup(int fd) {
   int i;
-  int new_alloc = fd_mode_count * 2;
+  int new_alloc = fd_lookup_count * 2;
   if (fd >= new_alloc)
     new_alloc = fd + 1;
 
-  fd_modes = myrealloc(fd_modes, sizeof(*fd_modes) * new_alloc);
-  for (i = fd_mode_count; i < new_alloc; ++i)
-    fd_modes[i] = 0;
-  fd_mode_count = new_alloc;
+  fd_lookup = myrealloc(fd_lookup, sizeof(*fd_lookup) * new_alloc);
+  for (i = fd_lookup_count; i < new_alloc; ++i)
+    fd_modes[i] = -1;
+  fd_lookup_count = new_alloc;
+
+  _check_state();
+}
+
+static void
+_expand_fds(void) {
+  int new_alloc = fd_alloc * 2;
+  fds = myrealloc(fds, sizeof(*fds) * new_alloc);
+  fd_alloc = new_alloc;
+}
+
+static int
+_get_fd_entry(int fd) {
+  if (fd < 0 && fd >= fd_lookup_count)
+    return -1;
+
+  return fd_lookup[fd];
+}
+
+static int
+_make_fd_entry(int fd) {
+  int entry;
+  if (fd < 0)
+    return -1;
+  if (fd > fd_lookup_count)
+    _expand_fd_lookup(fd);
+
+  if (fd_count == fd_alloc) {
+    _expand_fds();
+  }
+  entry = fd_count++;
+  fd_lookup[fd] = entry;
+  fds[entry].fd = fd;
+  fds[entry].current_events = 0;
+  fds[entry].want_events = 0;
+  fds[entry].eperm = 0;
+
+  return entry;
+}
+
+static void
+_release_fd_entry(int fd) {
+  int entry = _get_fd_entry(fd);
+
+  if (entry < 0) {
+    warn("Attempt to release entry for unused fd");
+    return;
+  }
+
+  
 }
 
 static double
@@ -268,11 +353,12 @@ lp_loop_watch_filehandle(PerlIO *handle, int mode) {
   struct epoll_event event;
   int cmd;
 
-  if (fd_mode_count <= fd)
-    _expand_fd_modes(fd);
+  if (fd_lookup_count <= fd)
+    _expand_fd_lookup(fd);
 
   TRACEF(("loop_watch_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
 
+  entry = _make_fd_entry(fd);
   old_mode = fd_modes[fd];
   event.events = old_mode | _epoll_from_poe_mode(mode);
   event.data.fd = fd;
@@ -303,6 +389,60 @@ lp_loop_ignore_filehandle(PerlIO *handle, int mode) {
     TRACEF(("epoll_ctl(%d, %d %s, %d, %x (%s))\n", epoll_fd, cmd, epoll_cmd_names(cmd), fd, event.events, epoll_mode_names(event.events)));
   }
 }
+
+#ifdef XS_LOOP_DEBUG
+
+static void 
+_fail_check(const char *file, int line, const char *fmt, ...) {
+  va_list args;
+
+  fprintf(stderr, "Check failed %s:%d - ", file, line);
+  va_start(args, fmt);
+  vfprintf(stderr, fmt, args);
+  va_end(args);
+  croak("POE::XS::Loop::EPoll internal consistency check failed");
+}
+
+/* check the consistency of the state */
+static void
+_check_state_fl(const char *file, int line) {
+  int i;
+  int found_fds = 0;
+
+  if (fd_alloc < fd_count) {
+    _fail_check(file, line, "fd_alloc (%d) < fd_count (%d)\n", 
+		fd_alloc, fd_count);
+  }
+
+  for (i = 0; i < fd_lookup_count; ++i) {
+    int entry = fd_lookup[i];
+    if (entry != -1) {
+      ++found_fds;
+      if (entry < 0 || entry >= fd_count) {
+	_fail_check(file, line, "entry %d for fd %d is outside the range 0 .. fd_count (%d) - 1\n", entry, fd, fd_count);
+      }
+
+      if (fd != fds[entry].fd) {
+	_fail_check(file, line, "entry %d for fd %d has fd %d\n",
+		    entry, fd, fds[entry].fd);
+      }
+    }
+  }
+  if (found_fds != fd_count) {
+    /* there's an fd entry with no fd_lookup pointing at it */
+    for (i = 0; i < fd_count; ++i) {
+      int fd = fds[i].fd;
+      if (fd < 0 || fd >= fd_lookup_count) {
+	_fail_check(file, line, "entry %d fd %d is out of range 0 .. fd_lookup_count (%d)\n", i, fd, fd_lookup_count);
+      }
+      if (fd_lookup[fd] != fd) {
+	_fail_check(file, line, "entry %d fd %d doesn't match fd_lookup[fd] (%d)\n", i, fd, fd_lookup[fd]);
+      }
+    }
+  }
+}
+
+#endif
 
 MODULE = POE::XS::Loop::EPoll  PACKAGE = POE::Kernel PREFIX = lp_
 

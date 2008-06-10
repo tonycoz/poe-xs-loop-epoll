@@ -55,8 +55,8 @@ typedef struct {
   /* the requested watch/ignore state, this is only used to check if
      we want to keep an fd entry for this fd.
      I want a better name.
-*/
-  int global_state;
+  */
+  int global_events;
 
   /* whether we got an eperm adding this
      this means it's a normal file, which we always return
@@ -186,6 +186,7 @@ _make_fd_entry(int fd) {
   fds[entry].fd = fd;
   fds[entry].current_events = 0;
   fds[entry].want_events = 0;
+  fds[entry].global_events = 0;
   fds[entry].eperm = 0;
   fds[entry].queued = 0;
 
@@ -455,6 +456,7 @@ static void
 lp_loop_watch_filehandle(PerlIO *handle, int mode) {
   int fd = PerlIO_fileno(handle);
   int entry;
+  int mask = _epoll_from_poe_mode(mode);
 
   if (fd_lookup_count <= fd)
     _expand_fd_lookup(fd);
@@ -462,7 +464,8 @@ lp_loop_watch_filehandle(PerlIO *handle, int mode) {
   TRACEF(("loop_watch_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
 
   entry = _make_fd_entry(fd);
-  fds[entry].want_events |= _epoll_from_poe_mode(mode);
+  fds[entry].want_events |= mask;
+  fds[entry].global_events &= ~mask;
   _queue_fd_change(entry);
 }
 
@@ -470,6 +473,7 @@ static void
 lp_loop_ignore_filehandle(PerlIO *handle, int mode) {
   int fd = PerlIO_fileno(handle);
   int entry = _get_fd_entry(fd);
+  int mask = _epoll_from_poe_mode(mode);
   
   TRACEF(("loop_ignore_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
 
@@ -478,12 +482,14 @@ lp_loop_ignore_filehandle(PerlIO *handle, int mode) {
     return;
   }
 
-  fds[entry].want_events &= ~_epoll_from_poe_mode(mode);
+  fds[entry].want_events &= ~mask;
+  fds[entry].global_events &= ~mask;
   if (!fds[entry].want_events) {
     if (fds[entry].current_events) {
       wrap_ctl(entry);
     }
-    _release_fd_entry(fd);
+    if (!fds[entry].global_events)
+      _release_fd_entry(fd);
   }
   else {
     _queue_fd_change(entry);

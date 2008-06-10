@@ -22,10 +22,10 @@
 #endif
 
 #ifdef XS_LOOP_DEBUG
-static void _check_state_fl(char const *file, int line);
-#define _check_state() _check_state_fl(__FILE__, __LINE__)
+static void check_state_fl(char const *file, int line);
+#define CHECK_STATE() check_state_fl(__FILE__, __LINE__)
 #else
-#define _check_state()
+#define CHECK_STATE()
 #endif
 
 /* these functions don't need the kernel argument, do don't supply it */
@@ -49,21 +49,35 @@ typedef struct {
   /* the events currently set with epoll_ctl() */
   int current_events;
 
-  /* the events as set by watch/pause/resume */
+  /* the events as set by watch/ignore/pause/resume */
   int want_events;
+
+  /* the requested watch/ignore state, this is only used to check if
+     we want to keep an fd entry for this fd.
+     I want a better name.
+*/
+  int global_state;
 
   /* whether we got an eperm adding this
      this means it's a normal file, which we always return
      readable/writable for
   */
   int eperm;
+
+  /* whether changes to this fd have been queued for later changes */
+  int queued;
 } fd_state;
 
+/* the fd returned by epoll_create() and passed to
+   epoll_ctl()/epoll_wait() */
 static int epoll_fd = -1;
 
 static fd_state *fds;
 static int fd_count;
 static int fd_alloc;
+static int *fd_queue;
+static int fd_queue_size;
+static int fd_queue_alloc;
 
 static int *fd_lookup;
 static int fd_lookup_count;
@@ -92,11 +106,19 @@ lp_loop_initialize(SV *kernel) {
   for (i = 0; i < fd_lookup_count; ++i) {
     fd_lookup[i] = -1;
   }
+
+  fd_queue = mymalloc(sizeof(*fd_queue) * START_FD_ALLOC);
+  fd_queue_size = 0;
+  fd_queue_alloc = START_FD_ALLOC;
+
+  CHECK_STATE();
 }
 
 static void
 lp_loop_finalize(SV *kernel) {
   TRACEF(("loop_finalize()\n"));
+
+  CHECK_STATE();
 
   if (epoll_fd != -1) {
     close(epoll_fd);
@@ -106,6 +128,8 @@ lp_loop_finalize(SV *kernel) {
   fds = NULL;
   myfree(fd_lookup);
   fd_lookup = NULL;
+  myfree(fd_queue);
+  fd_queue = NULL;
 }
 
 static void
@@ -117,10 +141,10 @@ _expand_fd_lookup(int fd) {
 
   fd_lookup = myrealloc(fd_lookup, sizeof(*fd_lookup) * new_alloc);
   for (i = fd_lookup_count; i < new_alloc; ++i)
-    fd_modes[i] = -1;
+    fd_lookup[i] = -1;
   fd_lookup_count = new_alloc;
 
-  _check_state();
+  CHECK_STATE();
 }
 
 static void
@@ -128,6 +152,8 @@ _expand_fds(void) {
   int new_alloc = fd_alloc * 2;
   fds = myrealloc(fds, sizeof(*fds) * new_alloc);
   fd_alloc = new_alloc;
+
+  CHECK_STATE();
 }
 
 static int
@@ -141,10 +167,16 @@ _get_fd_entry(int fd) {
 static int
 _make_fd_entry(int fd) {
   int entry;
+
+  CHECK_STATE();
+
   if (fd < 0)
     return -1;
   if (fd > fd_lookup_count)
     _expand_fd_lookup(fd);
+
+  if (fd_lookup[fd] != -1)
+    return fd_lookup[fd];
 
   if (fd_count == fd_alloc) {
     _expand_fds();
@@ -155,6 +187,9 @@ _make_fd_entry(int fd) {
   fds[entry].current_events = 0;
   fds[entry].want_events = 0;
   fds[entry].eperm = 0;
+  fds[entry].queued = 0;
+
+  CHECK_STATE();
 
   return entry;
 }
@@ -168,7 +203,33 @@ _release_fd_entry(int fd) {
     return;
   }
 
-  
+  if (entry != fd_count-1) {
+    fds[entry] = fds[fd_count-1];
+    fd_lookup[fds[entry].fd] = entry;
+  }
+
+  --fd_count;
+  fd_lookup[fd] = -1;
+
+  CHECK_STATE();
+}
+
+static void
+_queue_fd_change(int entry) {
+  if (!fds[entry].queued
+      && fds[entry].want_events != fds[entry].current_events) {
+    int fd = fds[entry].fd;
+
+    if (fd_queue_size >= fd_queue_alloc) {
+      int new_alloc = fd_queue_alloc * 2;
+
+      fd_queue = myrealloc(fd_queue, sizeof(*fd_queue) * new_alloc);
+      fd_queue_alloc = new_alloc;
+    }
+
+    fd_queue[fd_queue_size++] = fd;
+    fds[entry].queued = 1;
+  }
 }
 
 static double
@@ -203,6 +264,8 @@ static const char *
 epoll_mode_names(int mask) {
   switch (mask) {
   case 0:
+    return "none";
+    
   case EPOLLIN:
     return "EPOLLIN";
 
@@ -246,14 +309,57 @@ epoll_cmd_names(int cmd) {
 #endif
 
 static void
+wrap_ctl(int entry) {
+  int cmd;
+  struct epoll_event event;
+
+  if (fds[entry].current_events == fds[entry].want_events)
+    return;
+
+  event.data.fd = fds[entry].fd;
+  event.events = fds[entry].want_events;
+  if (fds[entry].current_events) {
+    if (fds[entry].want_events) {
+      cmd = EPOLL_CTL_MOD;
+    }
+    else {
+      cmd = EPOLL_CTL_DEL;
+    }
+  }
+  else {
+    cmd = EPOLL_CTL_ADD;
+  }
+  TRACEF(("epoll_ctl(%d, %d %s, %d, %x (%s))\n", epoll_fd, cmd, epoll_cmd_names(cmd), event.data.fd, event.events, epoll_mode_names(event.events)));
+  if (epoll_ctl(epoll_fd, cmd, event.data.fd, &event) == -1)
+    warn("epoll_ctl failed: %d\n", errno);
+  fds[entry].current_events = fds[entry].want_events;
+}
+
+static void
 lp_loop_do_timeslice(SV *kernel) {
   double delay = 3600;
   int count;
-  struct epoll_event *events = mymalloc(sizeof(struct epoll_event) * fd_mode_count);
+  int check_count = fd_count ? fd_count : 1;
+  struct epoll_event *events = mymalloc(sizeof(struct epoll_event) * check_count);
+  int i;
   
-  TRACEF(("loop_do_timeslice()\n - entry\n"));
+  TRACEF(("loop_do_timeslice()\n - entry, fd_count %d\n", fd_count));
 
   poe_test_if_kernel_idle(kernel);
+
+  /* scan for any ctl calls that need to be made */
+  TRACEF((" - applying saved event mask changes - queue size %d\n", 
+	  fd_queue_size));
+  for (i = 0; i < fd_queue_size; ++i) {
+    int fd = fd_queue[i];
+    int entry = _get_fd_entry(fd);
+    if (entry != -1) {
+      if (fds[entry].want_events != fds[entry].current_events)
+	wrap_ctl(entry);
+      fds[entry].queued = 0;
+    }
+  }
+  fd_queue_size = 0;
 
   if (lp_next_time) {
     delay = lp_next_time - time_h();
@@ -267,16 +373,14 @@ lp_loop_do_timeslice(SV *kernel) {
   {
     int i;
     TRACEF(("  Delay %f\n", delay));
-    for (i = 0; i < fd_mode_count; ++i) {
-      if (fd_modes[i]) {
-	TRACEF(("  fd %3d mask %x (%s)\n", i, fd_modes[i], epoll_mode_names(fd_modes[i])));
-      }
+    for (i = 0; i < fd_count; ++i) {
+      TRACEF(("  fd %3d mask %x (%s)\n", fds[i].fd, fds[i].want_events, epoll_mode_names(fds[i].want_events)));
     }
   }
 #endif
-  count = epoll_wait(epoll_fd, events, fd_mode_count, (int)(delay * 1000));
+  count = epoll_wait(epoll_fd, events, check_count, (int)(delay * 1000));
 
-  TRACEF(("epoll_wait() => %d\n", count));
+  TRACEF(("epoll_wait(%d, ..., %d, %d) => %d\n", epoll_fd, check_count, (int)(delay * 1000), count));
 
   if (count < 0) {
     warn("epoll() error: %d\n", errno);
@@ -284,13 +388,13 @@ lp_loop_do_timeslice(SV *kernel) {
   else if (count) {
     int mode;
     int i;
-    int *fds[3] = { NULL };
+    int *queue_fds[3] = { NULL };
     int counts[3] = { 0, 0, 0 };
     int masks[3];
 
-    fds[0] = mymalloc(sizeof(int) * fd_mode_count * 3);
-    fds[1] = fds[0] + fd_mode_count;
-    fds[2] = fds[1] + fd_mode_count;
+    queue_fds[0] = mymalloc(sizeof(int) * fd_count * 3);
+    queue_fds[1] = queue_fds[0] + fd_count;
+    queue_fds[2] = queue_fds[1] + fd_count;
     for (mode = MODE_RD; mode <= MODE_EX; ++mode) {
       masks[mode] = _epoll_from_poe_mode(mode);
     }
@@ -300,7 +404,7 @@ lp_loop_do_timeslice(SV *kernel) {
       int revents = events[i].events;
       for (mode = MODE_RD; mode <= MODE_EX; ++mode) {
 	if (revents & masks[mode]) {
-	  fds[mode][counts[mode]++] = events[i].data.fd;
+	  queue_fds[mode][counts[mode]++] = events[i].data.fd;
 	}
       }
     }
@@ -308,10 +412,11 @@ lp_loop_do_timeslice(SV *kernel) {
     TRACEF((" - queueing events\n"));
     for (mode = MODE_RD; mode <= MODE_EX; ++mode) {
       if (counts[mode])
-	poe_enqueue_data_ready(kernel, mode, fds[mode], counts[mode]);
+	poe_enqueue_data_ready(kernel, mode, queue_fds[mode], counts[mode]);
     }
-    myfree(fds[0]);
+    myfree(queue_fds[0]);
   }
+  myfree(events);
 
   TRACEF((" - dispatching events\n"));
   poe_data_ev_dispatch_due(kernel);
@@ -349,9 +454,7 @@ lp_loop_pause_time_watcher(SV *kernel) {
 static void
 lp_loop_watch_filehandle(PerlIO *handle, int mode) {
   int fd = PerlIO_fileno(handle);
-  int old_mode;
-  struct epoll_event event;
-  int cmd;
+  int entry;
 
   if (fd_lookup_count <= fd)
     _expand_fd_lookup(fd);
@@ -359,41 +462,69 @@ lp_loop_watch_filehandle(PerlIO *handle, int mode) {
   TRACEF(("loop_watch_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
 
   entry = _make_fd_entry(fd);
-  old_mode = fd_modes[fd];
-  event.events = old_mode | _epoll_from_poe_mode(mode);
-  event.data.fd = fd;
-  cmd = old_mode ? EPOLL_CTL_MOD : EPOLL_CTL_ADD;
-  TRACEF(("epoll_ctl(%d, %d %s, %d, %x (%s))\n", epoll_fd, cmd, epoll_cmd_names(cmd), fd, event.events, epoll_mode_names(event.events)));
-  if (epoll_ctl(epoll_fd, cmd, fd, &event) == -1)
-    warn("epoll_ctl failed: %d\n", errno);
-  fd_modes[fd] = event.events;
+  fds[entry].want_events |= _epoll_from_poe_mode(mode);
+  _queue_fd_change(entry);
 }
 
 static void
 lp_loop_ignore_filehandle(PerlIO *handle, int mode) {
   int fd = PerlIO_fileno(handle);
+  int entry = _get_fd_entry(fd);
   
   TRACEF(("loop_ignore_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
 
-  if (fd <= fd_mode_count && fd_modes[fd]) {
-    int new_mode = fd_modes[fd] & ~_epoll_from_poe_mode(mode);
-    int cmd = new_mode ? EPOLL_CTL_MOD : EPOLL_CTL_DEL;
-    struct epoll_event event;
-
-    event.events = new_mode;
-    event.data.fd = fd;
-    
-    if (epoll_ctl(epoll_fd, cmd, fd, &event) == -1)
-      warn("epoll_ctl failed: %d\n", errno);
-    fd_modes[fd] = new_mode;
-    TRACEF(("epoll_ctl(%d, %d %s, %d, %x (%s))\n", epoll_fd, cmd, epoll_cmd_names(cmd), fd, event.events, epoll_mode_names(event.events)));
+  if (entry == -1) {
+    TRACEF(("loop_ignore_filehandle: attempt to remove unwatched filehandle\n"));
+    return;
   }
+
+  fds[entry].want_events &= ~_epoll_from_poe_mode(mode);
+  if (!fds[entry].want_events) {
+    if (fds[entry].current_events) {
+      wrap_ctl(entry);
+    }
+    _release_fd_entry(fd);
+  }
+  else {
+    _queue_fd_change(entry);
+  }
+}
+
+static void
+lp_loop_pause_filehandle(PerlIO *handle, int mode) {
+  int fd = PerlIO_fileno(handle);
+  int entry = _get_fd_entry(fd);
+  
+  TRACEF(("loop_pause_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
+
+  if (entry == -1) {
+    TRACEF(("loop_pause_filehandle: attempt to remove unwatched filehandle\n"));
+    return;
+  }
+
+  fds[entry].want_events &= ~_epoll_from_poe_mode(mode);
+  _queue_fd_change(entry);
+}
+
+static void
+lp_loop_resume_filehandle(PerlIO *handle, int mode) {
+  int fd = PerlIO_fileno(handle);
+  int entry;
+
+  if (fd_lookup_count <= fd)
+    _expand_fd_lookup(fd);
+
+  TRACEF(("loop_resume_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
+
+  entry = _make_fd_entry(fd);
+  fds[entry].want_events |= _epoll_from_poe_mode(mode);
+  _queue_fd_change(entry);
 }
 
 #ifdef XS_LOOP_DEBUG
 
 static void 
-_fail_check(const char *file, int line, const char *fmt, ...) {
+fail_check(const char *file, int line, const char *fmt, ...) {
   va_list args;
 
   fprintf(stderr, "Check failed %s:%d - ", file, line);
@@ -405,12 +536,12 @@ _fail_check(const char *file, int line, const char *fmt, ...) {
 
 /* check the consistency of the state */
 static void
-_check_state_fl(const char *file, int line) {
+check_state_fl(const char *file, int line) {
   int i;
   int found_fds = 0;
 
   if (fd_alloc < fd_count) {
-    _fail_check(file, line, "fd_alloc (%d) < fd_count (%d)\n", 
+    fail_check(file, line, "fd_alloc (%d) < fd_count (%d)\n", 
 		fd_alloc, fd_count);
   }
 
@@ -419,12 +550,12 @@ _check_state_fl(const char *file, int line) {
     if (entry != -1) {
       ++found_fds;
       if (entry < 0 || entry >= fd_count) {
-	_fail_check(file, line, "entry %d for fd %d is outside the range 0 .. fd_count (%d) - 1\n", entry, fd, fd_count);
+	fail_check(file, line, "entry %d for fd %d is outside the range 0 .. fd_count (%d) - 1\n", entry, i, fd_count);
       }
 
-      if (fd != fds[entry].fd) {
-	_fail_check(file, line, "entry %d for fd %d has fd %d\n",
-		    entry, fd, fds[entry].fd);
+      if (i != fds[entry].fd) {
+	fail_check(file, line, "entry %d for fd %d has fd %d\n",
+		    entry, i, fds[entry].fd);
       }
     }
   }
@@ -433,10 +564,10 @@ _check_state_fl(const char *file, int line) {
     for (i = 0; i < fd_count; ++i) {
       int fd = fds[i].fd;
       if (fd < 0 || fd >= fd_lookup_count) {
-	_fail_check(file, line, "entry %d fd %d is out of range 0 .. fd_lookup_count (%d)\n", i, fd, fd_lookup_count);
+	fail_check(file, line, "entry %d fd %d is out of range 0 .. fd_lookup_count (%d)\n", i, fd, fd_lookup_count);
       }
       if (fd_lookup[fd] != fd) {
-	_fail_check(file, line, "entry %d fd %d doesn't match fd_lookup[fd] (%d)\n", i, fd, fd_lookup[fd]);
+	fail_check(file, line, "entry %d fd %d doesn't match fd_lookup[fd] (%d)\n", i, fd, fd_lookup[fd]);
       }
     }
   }

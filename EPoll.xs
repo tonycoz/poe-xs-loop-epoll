@@ -43,6 +43,14 @@ static void check_state_fl(char const *file, int line);
 /* the next time-based event to be dispatched */
 static double lp_next_time;
 
+#ifdef XS_LOOP_TRACE
+/* when we started working, used only for tracing */
+static double lp_start_time;
+#endif
+
+static double
+time_h(void);
+
 typedef struct {
   int fd;
 
@@ -89,7 +97,7 @@ static void
 lp_loop_initialize(SV *kernel) {
   int i;
 
-  TRACEF(("loop_initialize()\n"));
+  POE_TRACE_CALL(("<cl> loop_initialize()\n"));
 
   if (epoll_fd != -1) {
     warn("loop_initialize() called while loop is active");
@@ -112,11 +120,15 @@ lp_loop_initialize(SV *kernel) {
   fd_queue_alloc = START_FD_ALLOC;
 
   CHECK_STATE();
+
+#ifdef XS_LOOP_TRACE
+  lp_start_time = time_h();
+#endif
 }
 
 static void
 lp_loop_finalize(SV *kernel) {
-  TRACEF(("loop_finalize()\n"));
+  POE_TRACE_CALL(("<cl> loop_finalize()\n"));
 
   CHECK_STATE();
 
@@ -330,7 +342,7 @@ wrap_ctl(int entry) {
   else {
     cmd = EPOLL_CTL_ADD;
   }
-  TRACEF(("epoll_ctl(%d, %d %s, %d, %x (%s))\n", epoll_fd, cmd, epoll_cmd_names(cmd), event.data.fd, event.events, epoll_mode_names(event.events)));
+  POE_TRACE_CALL(("<cl> epoll_ctl(%d, %d %s, %d, %x (%s))\n", epoll_fd, cmd, epoll_cmd_names(cmd), event.data.fd, event.events, epoll_mode_names(event.events)));
   if (epoll_ctl(epoll_fd, cmd, event.data.fd, &event) == -1)
     warn("epoll_ctl failed: %d\n", errno);
   fds[entry].current_events = fds[entry].want_events;
@@ -339,18 +351,17 @@ wrap_ctl(int entry) {
 static void
 lp_loop_do_timeslice(SV *kernel) {
   double delay = 3600;
+  double now;
   int count;
   int check_count = fd_count ? fd_count : 1;
   struct epoll_event *events = mymalloc(sizeof(struct epoll_event) * check_count);
   int i;
   
-  TRACEF(("loop_do_timeslice()\n - entry, fd_count %d\n", fd_count));
+  POE_TRACE_CALL(("<cl> loop_do_timeslice()\n - entry, fd_count %d\n", fd_count));
 
   poe_test_if_kernel_idle(kernel);
 
   /* scan for any ctl calls that need to be made */
-  TRACEF((" - applying saved event mask changes - queue size %d\n", 
-	  fd_queue_size));
   for (i = 0; i < fd_queue_size; ++i) {
     int fd = fd_queue[i];
     int entry = _get_fd_entry(fd);
@@ -362,8 +373,9 @@ lp_loop_do_timeslice(SV *kernel) {
   }
   fd_queue_size = 0;
 
+  now = time_h();
   if (lp_next_time) {
-    delay = lp_next_time - time_h();
+    delay = lp_next_time - now;
     if (delay > 3600)
       delay = 3600;
   }
@@ -373,15 +385,30 @@ lp_loop_do_timeslice(SV *kernel) {
 #ifdef XS_LOOP_TRACE
   {
     int i;
-    TRACEF(("  Delay %f\n", delay));
+    POE_TRACE_FILE(("<fh> ,---- XS EPOLL FDS IN ----\n"));
     for (i = 0; i < fd_count; ++i) {
-      TRACEF(("  fd %3d mask %x (%s)\n", fds[i].fd, fds[i].want_events, epoll_mode_names(fds[i].want_events)));
+      POE_TRACE_FILE(("<fh>  fd %3d mask %x (%s)\n", fds[i].fd, fds[i].want_events, epoll_mode_names(fds[i].want_events)));
     }
+    POE_TRACE_FILE(("<fh> `-------------------------\n"));
   }
 #endif
+  POE_TRACE_EVENT(("<ev> Kernel::run() iterating (XS) now(%.4f) timeout(%.4f)"
+    " then(%.4f)\n", now - lp_start_time, delay, (now - lp_start_time) + delay));
   count = epoll_wait(epoll_fd, events, check_count, (int)(delay * 1000));
 
-  TRACEF(("epoll_wait(%d, ..., %d, %d) => %d\n", epoll_fd, check_count, (int)(delay * 1000), count));
+#ifdef XS_LOOP_TRACE
+  {
+    int i;
+    POE_TRACE_FILE(("<fh> epoll_wait() => %d\n", count));
+    POE_TRACE_FILE(("<fh> /---- XS EPOLL FDS OUT ----\n"));
+    for (i = 0; i < count; ++i) {
+      POE_TRACE_FILE(("<fh> | Index %d fd %d mask %x (%s)\n", i,
+		      events[i].data.fd, events[i].events, epoll_mode_names(events[i].events)));
+		      
+    }
+    POE_TRACE_FILE(("<fh> `-------------------------\n"));
+  }
+#endif
 
   if (count < 0) {
     warn("epoll() error: %d\n", errno);
@@ -410,7 +437,6 @@ lp_loop_do_timeslice(SV *kernel) {
       }
     }
 
-    TRACEF((" - queueing events\n"));
     for (mode = MODE_RD; mode <= MODE_EX; ++mode) {
       if (counts[mode])
 	poe_enqueue_data_ready(kernel, mode, queue_fds[mode], counts[mode]);
@@ -419,14 +445,12 @@ lp_loop_do_timeslice(SV *kernel) {
   }
   myfree(events);
 
-  TRACEF((" - dispatching events\n"));
   poe_data_ev_dispatch_due(kernel);
-  TRACEF((" - exit\n"));
 }
 
 static void
 lp_loop_run(SV *kernel) {
-  TRACEF(("loop_run()\n"));
+  POE_TRACE_CALL(("<cl> loop_run()\n"));
   while (poe_data_ses_count(kernel)) {
     lp_loop_do_timeslice(kernel);
   }
@@ -434,21 +458,21 @@ lp_loop_run(SV *kernel) {
 
 static void
 lp_loop_resume_time_watcher(double next_time) {
-  TRACEF(("loop_resume_time_watcher(%.3f) %.3f from now\n",
+  POE_TRACE_CALL(("<cl> loop_resume_time_watcher(%.3f) %.3f from now\n",
 	  next_time, next_time - time_h()));
   lp_next_time = next_time;
 }
 
 static void
 lp_loop_reset_time_watcher(double next_time) {
-  TRACEF(("loop_reset_time_watcher(%.3f) %.3f from now\n", 
+  POE_TRACE_CALL(("<cl> loop_reset_time_watcher(%.3f) %.3f from now\n", 
 	  next_time, next_time - time_h()));
   lp_next_time = next_time;
 }
 
 static void
 lp_loop_pause_time_watcher(SV *kernel) {
-  TRACEF(("loop_pause_time_watcher()\n"));
+  POE_TRACE_CALL(("<cl> loop_pause_time_watcher()\n"));
   lp_next_time = 0;
 }
 
@@ -461,7 +485,7 @@ lp_loop_watch_filehandle(PerlIO *handle, int mode) {
   if (fd_lookup_count <= fd)
     _expand_fd_lookup(fd);
 
-  TRACEF(("loop_watch_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
+  POE_TRACE_CALL(("<cl> loop_watch_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
 
   entry = _make_fd_entry(fd);
   fds[entry].want_events |= mask;
@@ -475,10 +499,10 @@ lp_loop_ignore_filehandle(PerlIO *handle, int mode) {
   int entry = _get_fd_entry(fd);
   int mask = _epoll_from_poe_mode(mode);
   
-  TRACEF(("loop_ignore_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
+  POE_TRACE_CALL(("<cl> loop_ignore_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
 
   if (entry == -1) {
-    TRACEF(("loop_ignore_filehandle: attempt to remove unwatched filehandle\n"));
+    POE_TRACE_FILE(("<fh> loop_ignore_filehandle: attempt to remove unwatched filehandle\n"));
     return;
   }
 
@@ -501,10 +525,10 @@ lp_loop_pause_filehandle(PerlIO *handle, int mode) {
   int fd = PerlIO_fileno(handle);
   int entry = _get_fd_entry(fd);
   
-  TRACEF(("loop_pause_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
+  POE_TRACE_CALL(("<cl> loop_pause_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
 
   if (entry == -1) {
-    TRACEF(("loop_pause_filehandle: attempt to remove unwatched filehandle\n"));
+    POE_TRACE_FILE(("loop_pause_filehandle: attempt to remove unwatched filehandle\n"));
     return;
   }
 
@@ -520,7 +544,7 @@ lp_loop_resume_filehandle(PerlIO *handle, int mode) {
   if (fd_lookup_count <= fd)
     _expand_fd_lookup(fd);
 
-  TRACEF(("loop_resume_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
+  POE_TRACE_CALL(("<cl> loop_resume_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
 
   entry = _make_fd_entry(fd);
   fds[entry].want_events |= _epoll_from_poe_mode(mode);

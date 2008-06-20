@@ -1,14 +1,19 @@
 #!perl -w
 use strict;
 use ExtUtils::MakeMaker;
-
-my $trace;
-if (grep /^--trace$/, @ARGV) {
-  ++$trace;
-}
+use Getopt::Long;
 
 unless ($^O eq 'linux') {
   die "OS unsupported: this module requires Linux\n";
+}
+
+my $trace;
+my $default;
+GetOptions('trace' => \$trace,
+	   'default' => \$default);
+
+if ($^O eq 'MSWin32') {
+  die "OS unsupported: this module requires that your system implements the poll(2) API\n";
 }
 
 # Switch to default behavior if STDIN isn't a tty.
@@ -20,12 +25,12 @@ unless (-t STDIN) {
        "STDIN is not a terminal.  Assuming --default.\n\n",
        "=============================================\n\n",
     );
-  push @ARGV, "--default";
+  ++$default;
 }
 
 # Remind the user she can use --default.
 
-unless (grep /^--default$/, @ARGV) {
+unless ($default) {
   warn(
        "\n",
        "================================================\n\n",
@@ -43,7 +48,7 @@ my $prompt = (
 	     );
 
 my $ret = "n";
-if (grep /^--default$/, @ARGV) {
+if ($default) {
   print $prompt, " [$ret] $ret\n\n";
 }
 else {
@@ -84,7 +89,28 @@ if ($eu_mmv > 6.06) {
   $opts{ABSTRACT} = 'XS loop implementation for POE';
 }
 if ($trace) {
+  warn <<TRACEMSG;
+==============================
+
+Building with tracing enabled
+
+==============================
+
+TRACEMSG
   $opts{DEFINE} = '-DXS_LOOP_TRACE';
+}
+else {
+  warn <<TRACEMSG;
+========================================
+
+Building with tracing disabled - run:
+
+  perl Makefile.PL --trace
+
+for runtime POE tracing of the loop code
+
+========================================
+TRACEMSG
 }
 if ($eu_mmv > 6.30) {
   $opts{LICENSE} = 'perl';

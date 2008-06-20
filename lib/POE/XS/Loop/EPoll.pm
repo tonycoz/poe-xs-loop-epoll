@@ -2,6 +2,11 @@ package POE::XS::Loop::EPoll;
 use strict;
 use vars qw(@ISA $VERSION);
 BEGIN {
+  unless (defined &POE::Kernel::TRACE_CALLS) {
+    # we ignore TRACE_DEFAULT, since it's not really standard POE and it's
+    # noisy
+    *POE::Kernel::TRACE_CALLS = sub () { 0 };
+  }
   $VERSION = '0.001';
   eval {
     # try XSLoader first, DynaLoader has annoying baggage

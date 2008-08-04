@@ -2,6 +2,7 @@
 use strict;
 use ExtUtils::MakeMaker;
 use Getopt::Long;
+use POE::Test::Loops 1.001;
 
 unless ($^O eq 'linux') {
   die "OS unsupported: this module requires Linux\n";
@@ -63,13 +64,7 @@ if ($ret =~ /^n$/i) {
 
 print "\n";
 
-system 
-  ( 
-   $^X, '-S', 'poe-gen-tests',
-   '--dirbase', 't', 
-   '--loop', 'POE::XS::Loop::EPoll' 
-  )
-  and die $!;
+POE::Test::Loops::generate('t', [ 'POE::XS::Loop::EPoll' ], 0);
   
 my %opts = 
   (
@@ -77,11 +72,13 @@ my %opts =
    VERSION_FROM => 'lib/POE/XS/Loop/EPoll.pm',
    OBJECT => 'EPoll.o alloc.o poexs.o',
    PREREQ_PM => {
-		 'POE'    => 1.00,
+		 'POE'    => 1.003,
+		 'POE::Test::Loops' => 1.002,
 		},
    test => {
 	    TESTS => 't/poe_xs_loop_epoll/*.t',
 	   },
+   clean => { FILES => 't/poe_xs_loop_epoll/*.t' },
   );
 my $eu_mmv = eval $ExtUtils::MakeMaker::VERSION;
 if ($eu_mmv > 6.06) {
@@ -112,8 +109,19 @@ for runtime POE tracing of the loop code
 ========================================
 TRACEMSG
 }
-if ($eu_mmv > 6.30) {
+
+# LICENSE was introduced in 6.30_01, but Debian etch includes
+# (as of 2007/01/12) an ExtUtils::MakeMaker versioned 6.30_01 without
+# LICENSE support
+# EXTRA_META was also introduced in 6.30_01
+if ($eu_mmv > 6.3001) {
   $opts{LICENSE} = 'perl';
+  $opts{EXTRA_META} = <<META;
+configure_requires:
+  POE::Test::Loops: 1.002
+build_requires:
+  POE::Test::Loops: 1.002
+META
 }
 
 WriteMakefile(%opts);

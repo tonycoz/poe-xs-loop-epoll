@@ -41,6 +41,13 @@ loop_ignore_filehandle(), loop_pause_filehandle(),
 loop_resume_filehandle(), and supplied to poe_enqueue_data_ready()
 when filehandles become ready.
 
+=item POE_SV_FORMAT
+
+The format string perl's sprintf() style formatters recognize to
+format a SV*.  This is "%_" up to perl 5.9 and "%-p" from 5.10
+onwards.  This isn't really POE specific, but it's useful for
+formatting SVs.
+
 =back
 
 =head1 FUNCTIONS
@@ -231,6 +238,55 @@ poe_mode_names(int mode) {
   default:
     croak("Unknown filehandle watch mode %d", mode);
   }  
+}
+
+/*
+=item poe_timeh()
+
+Returns the current epoch time as a floating point value.
+
+=cut
+*/
+
+double
+poe_timeh(void) {
+  struct timeval tv;
+
+  gettimeofday(&tv, NULL);
+
+  return tv.tv_sec + 1e-6 * tv.tv_usec;
+}
+
+/*
+=item poe_trap(fmt, ...);
+
+Call POE::Kernel::_trap() with the formatted string as the parameter.
+
+=cut
+*/
+void
+poe_trap(const char *fmt, ...) {
+  SV *out = sv_2mortal(newSVpv("", 0));
+  va_list va;
+  dSP;
+  int count;
+
+  va_start(va, fmt);
+  sv_vcatpvf(out, fmt, &va);
+  va_end(va);
+
+  ENTER;
+  SAVETMPS;
+  EXTEND(SP, 1);
+  PUSHMARK(SP);
+  PUSHs(out);
+  PUTBACK;
+
+  count = perl_call_pv("POE::Kernel::_trap", G_VOID | G_DISCARD);
+
+  /* not sure we ever get here */
+  FREETMPS;
+  LEAVE;
 }
 
 #ifdef XS_LOOP_TRACE

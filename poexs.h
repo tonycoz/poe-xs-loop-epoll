@@ -9,6 +9,12 @@
 #define MODE_WR 1
 #define MODE_EX 2
 
+#if defined(PERL_VERSION) && PERL_VERSION > 9
+#define POE_SV_FORMAT "%-p"
+#else
+#define POE_SV_FORMAT "%_"
+#endif
+
 extern void
 poe_enqueue_data_ready(SV *kernel, int mode, int *fds, int fd_count);
 
@@ -21,8 +27,14 @@ poe_test_if_kernel_idle(SV *kernel);
 extern int
 poe_data_ses_count(SV *kernel);
 
+extern double
+poe_timeh(void);
+
 extern const char *
 poe_mode_names(int mode);
+
+extern void
+poe_trap(const char *fmt, ...);
 
 #ifdef XS_LOOP_TRACE
 #include <stdio.h>
@@ -48,7 +60,5 @@ poexs_data_stat_add(SV *kernel, const char *name, double value);
 #define POE_TRACE_CALL(foo)
 #define POE_STAT_ADD(kernel, name, value)
 #endif
-
-
 
 #endif

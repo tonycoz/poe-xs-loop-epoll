@@ -348,6 +348,14 @@ wrap_ctl(int entry) {
   fds[entry].current_events = fds[entry].want_events;
 }
 
+static int
+test_masks[] =
+  {
+    EPOLLIN | EPOLLERR,
+    EPOLLOUT | EPOLLERR,
+    EPOLLPRI | EPOLLHUP | EPOLLERR,
+  };
+
 static void
 lp_loop_do_timeslice(SV *kernel) {
   double delay = 3600;
@@ -418,20 +426,16 @@ lp_loop_do_timeslice(SV *kernel) {
     int i;
     int *queue_fds[3] = { NULL };
     int counts[3] = { 0, 0, 0 };
-    int masks[3];
 
     queue_fds[0] = mymalloc(sizeof(int) * fd_count * 3);
     queue_fds[1] = queue_fds[0] + fd_count;
     queue_fds[2] = queue_fds[1] + fd_count;
-    for (mode = MODE_RD; mode <= MODE_EX; ++mode) {
-      masks[mode] = _epoll_from_poe_mode(mode);
-    }
 
     /* build an array of fds for each event */
     for (i = 0; i < count; ++i) {
       int revents = events[i].events;
       for (mode = MODE_RD; mode <= MODE_EX; ++mode) {
-	if (revents & masks[mode]) {
+	if (revents & test_masks[mode]) {
 	  queue_fds[mode][counts[mode]++] = events[i].data.fd;
 	}
       }
@@ -489,7 +493,7 @@ lp_loop_watch_filehandle(PerlIO *handle, int mode) {
 
   entry = _make_fd_entry(fd);
   fds[entry].want_events |= mask;
-  fds[entry].global_events &= ~mask;
+  fds[entry].global_events |= mask;
   _queue_fd_change(entry);
 }
 

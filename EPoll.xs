@@ -28,6 +28,12 @@ static void check_state_fl(char const *file, int line);
 #define CHECK_STATE()
 #endif
 
+#ifdef XS_LOOP_TRACE
+#define lp_tracing_enabled() 1
+#else
+#define lp_tracing_enabled() 0
+#endif
+
 /* these functions don't need the kernel argument, do don't supply it */
 #define lpm_loop_resume_time_watcher(self, next_time) lp_loop_resume_time_watcher(next_time)
 #define lpm_loop_reset_time_watcher(self, next_time) lp_loop_reset_time_watcher(next_time)
@@ -66,11 +72,11 @@ typedef struct {
   */
   int global_events;
 
-  /* whether we got an eperm adding this
-     this means it's a normal file, which we always return
-     readable/writable for
+  /* non-zero for regular files.
+     epoll_ctl() doesn't support regular files, and since these always 
+     return sucess with poll() under Linux, we emulate that behaviour.
   */
-  int eperm;
+  int reg_file;
 
   /* whether changes to this fd have been queued for later changes */
   int queued;
@@ -89,6 +95,9 @@ static int fd_queue_alloc;
 
 static int *fd_lookup;
 static int fd_lookup_count;
+
+/* number of fds which appear to be normal files */
+static int reg_file_count;
 
 /* functions should be static, hopefully the compiler will inline them
    into the XS code */
@@ -199,7 +208,7 @@ _make_fd_entry(int fd) {
   fds[entry].current_events = 0;
   fds[entry].want_events = 0;
   fds[entry].global_events = 0;
-  fds[entry].eperm = 0;
+  fds[entry].reg_file = 0;
   fds[entry].queued = 0;
 
   CHECK_STATE();
@@ -215,6 +224,9 @@ _release_fd_entry(int fd) {
     warn("Attempt to release entry for unused fd");
     return;
   }
+
+  if (fds[entry].reg_file)
+    --reg_file_count;
 
   if (entry != fd_count-1) {
     fds[entry] = fds[fd_count-1];
@@ -328,6 +340,8 @@ wrap_ctl(int entry) {
 
   if (fds[entry].current_events == fds[entry].want_events)
     return;
+  if (fds[entry].reg_file) 
+    return;
 
   event.data.fd = fds[entry].fd;
   event.events = fds[entry].want_events;
@@ -343,8 +357,26 @@ wrap_ctl(int entry) {
     cmd = EPOLL_CTL_ADD;
   }
   POE_TRACE_CALL(("<cl> epoll_ctl(%d, %d %s, %d, %x (%s))\n", epoll_fd, cmd, epoll_cmd_names(cmd), event.data.fd, event.events, epoll_mode_names(event.events)));
-  if (epoll_ctl(epoll_fd, cmd, event.data.fd, &event) == -1)
-    warn("epoll_ctl failed: %d\n", errno);
+  if (epoll_ctl(epoll_fd, cmd, event.data.fd, &event) == -1) {
+    if (errno == EPERM) {
+      struct stat st;
+
+      if (fstat(event.data.fd, &st) == 0
+	  && S_ISREG(st.st_mode)) {
+	POE_TRACE_FILE(("<fh>  fd %d is a regular file - emulating events\n", 
+			event.data.fd));
+	++reg_file_count;
+	fds[entry].reg_file = 1;
+      }
+      else { 
+	poe_trap("<fh> epoll_ctl failed: " POE_SV_FORMAT, get_sv("!", 0));
+	errno = EPERM;
+      }
+    }
+    else {
+      poe_trap("<fh> epoll_ctl failed: " POE_SV_FORMAT, get_sv("!", 0));
+    }
+  }
   fds[entry].current_events = fds[entry].want_events;
 }
 
@@ -364,8 +396,9 @@ lp_loop_do_timeslice(SV *kernel) {
   int check_count = fd_count ? fd_count : 1;
   struct epoll_event *events = mymalloc(sizeof(struct epoll_event) * check_count);
   int i;
+  int check_reg_files = 0;
   
-  POE_TRACE_CALL(("<cl> loop_do_timeslice()\n - entry, fd_count %d\n", fd_count));
+  POE_TRACE_CALL(("<cl> loop_do_timeslice()\n"));
 
   poe_test_if_kernel_idle(kernel);
 
@@ -390,12 +423,30 @@ lp_loop_do_timeslice(SV *kernel) {
   if (delay < 0)
     delay = 0;
 
+  /* if we have regular files, epoll_ctl() failed, and epoll_wait()
+     won't know to return for them, so fudge the timeout to 0 */
+  if (reg_file_count) {
+    /* check if any of the regular files have any active events */
+    for (i = 0; i < fd_count; ++i) {
+      if (fds[i].reg_file && fds[i].want_events) {
+	delay = 0;
+	check_reg_files = 1;
+	break;
+      }
+    }
+  }
+
 #ifdef XS_LOOP_TRACE
   {
     int i;
     POE_TRACE_FILE(("<fh> ,---- XS EPOLL FDS IN ----\n"));
     for (i = 0; i < fd_count; ++i) {
-      POE_TRACE_FILE(("<fh>  fd %3d mask %x (%s)\n", fds[i].fd, fds[i].want_events, epoll_mode_names(fds[i].want_events)));
+      POE_TRACE_FILE(("<fh>  fd %3d mask %x (%s)%s\n", fds[i].fd, 
+		      fds[i].want_events, epoll_mode_names(fds[i].want_events),
+		      fds[i].reg_file ? " (regular file)" : ""));
+    }
+    if (reg_file_count) {
+      POE_TRACE_FILE(("<fh>   %d regular files\n", reg_file_count));
     }
     POE_TRACE_FILE(("<fh> `-------------------------\n"));
   }
@@ -421,7 +472,7 @@ lp_loop_do_timeslice(SV *kernel) {
   if (count < 0) {
     warn("epoll() error: %d\n", errno);
   }
-  else if (count) {
+  else if (count || check_reg_files) {
     int mode;
     int i;
     int *queue_fds[3] = { NULL };
@@ -437,6 +488,20 @@ lp_loop_do_timeslice(SV *kernel) {
       for (mode = MODE_RD; mode <= MODE_EX; ++mode) {
 	if (revents & test_masks[mode]) {
 	  queue_fds[mode][counts[mode]++] = events[i].data.fd;
+	}
+      }
+    }
+
+    if (check_reg_files) {
+      /* return an event for regular files 
+	 These are distinct from the events above so we won't get 
+	 duplicate fds
+       */
+      for (i = 0; i < fd_count; ++i) {
+	for (mode = MODE_RD; mode <= MODE_EX; ++mode) {
+	  if (fds[i].reg_file && (fds[i].want_events & test_masks[mode])) {
+	    queue_fds[mode][counts[mode]++] = fds[i].fd;
+	  }
 	}
       }
     }
@@ -573,6 +638,7 @@ static void
 check_state_fl(const char *file, int line) {
   int i;
   int found_fds = 0;
+  int found_reg_files = 0;
 
   if (fd_alloc < fd_count) {
     fail_check(file, line, "fd_alloc (%d) < fd_count (%d)\n", 
@@ -591,7 +657,13 @@ check_state_fl(const char *file, int line) {
 	fail_check(file, line, "entry %d for fd %d has fd %d\n",
 		    entry, i, fds[entry].fd);
       }
+      if (fds[entry].reg_file)
+	++found_reg_files;
     }
+  }
+  if (found_reg_files != reg_file_count) {
+    fail_check(file, line, "found %d reg_files, but remember %d\n", 
+	       found_reg_files, reg_file_count);
   }
   if (found_fds != fd_count) {
     /* there's an fd entry with no fd_lookup pointing at it */
@@ -668,3 +740,8 @@ void
 lpm_loop_resume_filehandle(self, fh, mode)
   PerlIO *fh
   int mode
+
+MODULE = POE::XS::Loop::EPoll  PACKAGE = POE::XS::Loop::EPoll PREFIX = lp_
+
+int
+lp_tracing_enabled()

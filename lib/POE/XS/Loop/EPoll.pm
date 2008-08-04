@@ -22,6 +22,11 @@ BEGIN {
 
 require POE::Loop::PerlSignals;
 
+if ((POE::Kernel::TRACE_FILES() || POE::Kernel::TRACE_EVENTS()) 
+    && !tracing_enabled()) {
+  print POE::Kernel::TRACE_FILE "<xx> ", __PACKAGE__, " was built without tracing enabled, build with perl Makefile.PL --trace to enable tracing\n";
+}
+
 # everything else is XS
 1;
 
@@ -42,9 +47,13 @@ written in C using the Linux epoll(2) family of system calls.
 
 Signals are left to POE::Loop::PerlSignals.
 
+The epoll_ctl() call returns an error when you attempt to poll regular
+files, POE::XS::Loop::EPoll emulate's poll(2)'s behaviour with regular
+files under Linux - ie. they're always readable/writeable.
+
 =head1 SEE ALSO
 
-POE, POE::Loop.
+POE, POE::Loop, POE::XS::Loop::Poll.
 
 =head1 BUGS
 
@@ -65,8 +74,6 @@ Tony Cook <tonyc@cpan.org>
 sub skip_tests {
   my $test = shift;
   $ENV{POE_EVENT_LOOP} = 'POE::XS::Loop::EPoll';
-  $test eq 'wheel_readwrite'
-    and return "epoll_ctl(2) doesn't work with plain files";
   return;
 }
 

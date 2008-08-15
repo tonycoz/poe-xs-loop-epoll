@@ -1,4 +1,4 @@
 This is the change history of POE::XS::Loop::EPoll.
 
-0.001 unreleased
+0.001 Fri Aug 15 18:53:01 EST 2008
  - initial release

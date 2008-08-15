@@ -83,7 +83,7 @@ my %opts =
 my $eu_mmv = eval $ExtUtils::MakeMaker::VERSION;
 if ($eu_mmv > 6.06) {
   $opts{AUTHOR} = 'Tony Cook <tonyc@cpan.org>';
-  $opts{ABSTRACT} = 'XS loop implementation for POE';
+  $opts{ABSTRACT} = 'XS loop implementation for POE using epoll_*()';
 }
 if ($trace) {
   warn <<TRACEMSG;
@@ -121,6 +121,8 @@ configure_requires:
   POE::Test::Loops: 1.002
 build_requires:
   POE::Test::Loops: 1.002
+resources:
+  repository: http://imager.perl.org/svn/trunk/POE-XS-Loop-EPoll
 META
 }
 

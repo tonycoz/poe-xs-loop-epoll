@@ -72,7 +72,6 @@ Tony Cook <tonyc@cpan.org>
 =for poe_tests
 
 sub skip_tests {
-  my $test = shift;
   $ENV{POE_EVENT_LOOP} = 'POE::XS::Loop::EPoll';
   return;
 }

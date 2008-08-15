@@ -397,6 +397,7 @@ lp_loop_do_timeslice(SV *kernel) {
   struct epoll_event *events = mymalloc(sizeof(struct epoll_event) * check_count);
   int i;
   int check_reg_files = 0;
+  int errno_save;
   
   POE_TRACE_CALL(("<cl> loop_do_timeslice()\n"));
 
@@ -454,6 +455,7 @@ lp_loop_do_timeslice(SV *kernel) {
   POE_TRACE_EVENT(("<ev> Kernel::run() iterating (XS) now(%.4f) timeout(%.4f)"
     " then(%.4f)\n", now - lp_start_time, delay, (now - lp_start_time) + delay));
   count = epoll_wait(epoll_fd, events, check_count, (int)(delay * 1000));
+  errno_save = errno;
 
 #ifdef XS_LOOP_TRACE
   {
@@ -470,7 +472,16 @@ lp_loop_do_timeslice(SV *kernel) {
 #endif
 
   if (count < 0) {
-    warn("epoll() error: %d\n", errno);
+    /* the other loops check more errno values, but this is Linux, and only
+       a few possible errors are documented for epol_wait */
+    if (errno_save != EINTR) {
+      SV *errno_sv = get_sv("!", 0);
+
+      /* the trace code does I/O which might trash errno, so put the
+	 value back */
+      sv_setiv(errno_sv, errno_save);
+      poe_trap("<fh> epoll_wait() error: ", POE_SV_FORMAT, errno_sv);
+    }
   }
   else if (count || check_reg_files) {
     int mode;

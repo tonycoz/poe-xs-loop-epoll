@@ -312,6 +312,9 @@ epoll_mode_names(int mask) {
   case EPOLLOUT | EPOLLIN | EPOLLPRI:
     return "EPOLLOUT | EPOLLIN | EPOLLPRI";
 
+  case EPOLLHUP:
+    return "EPOLLHUP";
+
   default:
     return "Unknown";
   }
@@ -383,7 +386,7 @@ wrap_ctl(int entry) {
 static int
 test_masks[] =
   {
-    EPOLLIN | EPOLLERR,
+    EPOLLIN | EPOLLHUP | EPOLLERR,
     EPOLLOUT | EPOLLERR,
     EPOLLPRI | EPOLLHUP | EPOLLERR,
   };

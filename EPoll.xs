@@ -6,6 +6,8 @@
 #include <sys/epoll.h>
 #include <sys/time.h>
 #include <time.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include "alloc.h"
 #include "poexs.h"
 
@@ -96,6 +98,10 @@ static int fd_queue_alloc;
 static int *fd_lookup;
 static int fd_lookup_count;
 
+
+/* pid we last epoll_waited() in */
+static pid_t last_pid;
+
 /* number of fds which appear to be normal files */
 static int reg_file_count;
 
@@ -127,6 +133,8 @@ lp_loop_initialize(SV *kernel) {
   fd_queue = mymalloc(sizeof(*fd_queue) * START_FD_ALLOC);
   fd_queue_size = 0;
   fd_queue_alloc = START_FD_ALLOC;
+
+  last_pid = getpid();
 
   CHECK_STATE();
 
@@ -359,7 +367,7 @@ wrap_ctl(int entry) {
   else {
     cmd = EPOLL_CTL_ADD;
   }
-  POE_TRACE_CALL(("<cl> epoll_ctl(%d, %d %s, %d, %x (%s))\n", epoll_fd, cmd, epoll_cmd_names(cmd), event.data.fd, event.events, epoll_mode_names(event.events)));
+  POE_TRACE_CALL(("<cl> epoll_ctl(%d, %d %s, %d, %x (%s))", epoll_fd, cmd, epoll_cmd_names(cmd), event.data.fd, event.events, epoll_mode_names(event.events)));
   if (epoll_ctl(epoll_fd, cmd, event.data.fd, &event) == -1) {
     if (errno == EPERM) {
       struct stat st;
@@ -372,15 +380,39 @@ wrap_ctl(int entry) {
 	fds[entry].reg_file = 1;
       }
       else { 
+        POE_TRACE_CALL(("<cl> epoll_ctl failed: %d", errno));
 	poe_trap("<fh> epoll_ctl failed: " POE_SV_FORMAT, get_sv("!", 0));
 	errno = EPERM;
       }
     }
     else {
+      POE_TRACE_CALL(("<cl> epoll_ctl failed: %d", errno));
       poe_trap("<fh> epoll_ctl failed: " POE_SV_FORMAT, get_sv("!", 0));
     }
   }
   fds[entry].current_events = fds[entry].want_events;
+}
+
+/* make ourselves a new epoll handle and load it up so forked
+   processes aren't stepping over each others handle sets.
+
+*/
+static void
+new_process(void) {
+  int i;
+
+  close(epoll_fd);
+  epoll_fd = epoll_create(START_FD_ALLOC);
+  POE_TRACE_CALL(("<cl> new_process() - populating new epoll fd %d", epoll_fd));
+  for (i = 0; i < fd_lookup_count; ++i) {
+    int entry = fd_lookup[i];
+    if (entry != -1) {
+      POE_TRACE_CALL(("<cl> epoll: committing fd %d entry %d want %d", i, entry, fds[entry].want_events));
+      fds[entry].current_events = 0;
+      wrap_ctl(entry);
+    }
+  }  
+  last_pid = getpid();
 }
 
 static int
@@ -401,20 +433,27 @@ lp_loop_do_timeslice(SV *kernel) {
   int i;
   int check_reg_files = 0;
   int errno_save;
+  pid_t current_pid = getpid();
   
   POE_TRACE_CALL(("<cl> loop_do_timeslice()\n"));
 
   poe_test_if_kernel_idle(kernel);
 
   /* scan for any ctl calls that need to be made */
-  for (i = 0; i < fd_queue_size; ++i) {
-    int fd = fd_queue[i];
-    int entry = _get_fd_entry(fd);
-    if (entry != -1) {
-      if (fds[entry].want_events != fds[entry].current_events)
-	wrap_ctl(entry);
-      fds[entry].queued = 0;
+  
+  if (current_pid == last_pid) {
+    for (i = 0; i < fd_queue_size; ++i) {
+      int fd = fd_queue[i];
+      int entry = _get_fd_entry(fd);
+      if (entry != -1) {
+        if (fds[entry].want_events != fds[entry].current_events)
+  	  wrap_ctl(entry);
+        fds[entry].queued = 0;
+      }
     }
+  }
+  else {
+    new_process();
   }
   fd_queue_size = 0;
 
@@ -480,6 +519,7 @@ lp_loop_do_timeslice(SV *kernel) {
     if (errno_save != EINTR) {
       SV *errno_sv = get_sv("!", 0);
 
+      POE_TRACE_CALL(("<cl> epoll_wait() failed: %d", errno));
       /* the trace code does I/O which might trash errno, so put the
 	 value back */
       sv_setiv(errno_sv, errno_save);
@@ -593,7 +633,14 @@ lp_loop_ignore_filehandle(PerlIO *handle, int mode) {
   fds[entry].global_events &= ~mask;
   if (!fds[entry].want_events) {
     if (fds[entry].current_events) {
-      wrap_ctl(entry);
+      int current_pid = getpid();
+
+      if (current_pid == last_pid) {
+        wrap_ctl(entry);
+      }
+      else {
+        new_process();
+      }
     }
     if (!fds[entry].global_events)
       _release_fd_entry(fd);

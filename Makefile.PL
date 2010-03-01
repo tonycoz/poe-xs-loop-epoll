@@ -13,10 +13,6 @@ my $default;
 GetOptions('trace' => \$trace,
 	   'default' => \$default);
 
-if ($^O eq 'MSWin32') {
-  die "OS unsupported: this module requires that your system implements the poll(2) API\n";
-}
-
 # Switch to default behavior if STDIN isn't a tty.
 # maybe POE::Test::Loops should export a function that does all this...
 unless (-t STDIN) {
@@ -113,17 +109,19 @@ TRACEMSG
 # LICENSE was introduced in 6.30_01, but Debian etch includes
 # (as of 2007/01/12) an ExtUtils::MakeMaker versioned 6.30_01 without
 # LICENSE support
-# EXTRA_META was also introduced in 6.30_01
 if ($eu_mmv > 6.3001) {
   $opts{LICENSE} = 'perl';
-  $opts{EXTRA_META} = <<META;
-configure_requires:
-  POE::Test::Loops: 1.002
-build_requires:
-  POE::Test::Loops: 1.002
-resources:
-  repository: http://imager.perl.org/svn/trunk/POE-XS-Loop-EPoll
-META
+}
+# META_MERGE was introduced in 6.45_01 with a fix in 6.46
+# previously we used EXTRA_META, which is deprecated
+if ($eu_mmv >= 6.46) {
+  $opts{META_MERGE} = 
+    {
+     configure_requires => { "POE::Test::Loops" => "1.002" },
+     build_requires => { "POE::Test::Loops" => "1.002" },
+     resources =>
+     { repository => "http://imager.perl.org/svn/trunk/POE-XS-Loop-EPoll" },
+    };
 }
 
 WriteMakefile(%opts);

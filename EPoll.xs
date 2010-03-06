@@ -11,7 +11,7 @@
 #include "alloc.h"
 #include "poexs.h"
 
-#define XS_LOOP_DEBUG
+/*#define XS_LOOP_DEBUG*/
 
 #if defined(MEM_DEBUG) || defined(XS_LOOP_DEBUG)
 /* sizes that should require re-allocation of the arrays */

@@ -30,6 +30,8 @@ static void check_state_fl(char const *file, int line);
 #define CHECK_STATE()
 #endif
 
+#define LOOP_CHECK_INITIALIZED() if (epoll_fd == -1) croak("POE::XS::Loop::EPoll hasn't been initialized correctly");
+
 #ifdef XS_LOOP_TRACE
 #define lp_tracing_enabled() 1
 #else
@@ -429,13 +431,17 @@ lp_loop_do_timeslice(SV *kernel) {
   double now;
   int count;
   int check_count = fd_count ? fd_count : 1;
-  struct epoll_event *events = mymalloc(sizeof(struct epoll_event) * check_count);
+  struct epoll_event *events;
   int i;
   int check_reg_files = 0;
   int errno_save;
   pid_t current_pid = getpid();
   
+  LOOP_CHECK_INITIALIZED();
+
   POE_TRACE_CALL(("<cl> loop_do_timeslice()\n"));
+
+  events = mymalloc(sizeof(struct epoll_event) * check_count);
 
   poe_test_if_kernel_idle(kernel);
 
@@ -581,6 +587,8 @@ lp_loop_run(SV *kernel) {
 
 static void
 lp_loop_resume_time_watcher(double next_time) {
+  LOOP_CHECK_INITIALIZED();
+
   POE_TRACE_CALL(("<cl> loop_resume_time_watcher(%.3f) %.3f from now\n",
 	  next_time, next_time - time_h()));
   lp_next_time = next_time;
@@ -588,6 +596,8 @@ lp_loop_resume_time_watcher(double next_time) {
 
 static void
 lp_loop_reset_time_watcher(double next_time) {
+  LOOP_CHECK_INITIALIZED();
+
   POE_TRACE_CALL(("<cl> loop_reset_time_watcher(%.3f) %.3f from now\n", 
 	  next_time, next_time - time_h()));
   lp_next_time = next_time;
@@ -595,6 +605,8 @@ lp_loop_reset_time_watcher(double next_time) {
 
 static void
 lp_loop_pause_time_watcher(SV *kernel) {
+  LOOP_CHECK_INITIALIZED();
+
   POE_TRACE_CALL(("<cl> loop_pause_time_watcher()\n"));
   lp_next_time = 0;
 }
@@ -604,6 +616,8 @@ lp_loop_watch_filehandle(PerlIO *handle, int mode) {
   int fd = PerlIO_fileno(handle);
   int entry;
   int mask = _epoll_from_poe_mode(mode);
+
+  LOOP_CHECK_INITIALIZED();
 
   if (fd_lookup_count <= fd)
     _expand_fd_lookup(fd);
@@ -622,6 +636,8 @@ lp_loop_ignore_filehandle(PerlIO *handle, int mode) {
   int entry = _get_fd_entry(fd);
   int mask = _epoll_from_poe_mode(mode);
   
+  LOOP_CHECK_INITIALIZED();
+
   POE_TRACE_CALL(("<cl> loop_ignore_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
 
   if (entry == -1) {
@@ -670,6 +686,8 @@ static void
 lp_loop_resume_filehandle(PerlIO *handle, int mode) {
   int fd = PerlIO_fileno(handle);
   int entry;
+
+  LOOP_CHECK_INITIALIZED();
 
   if (fd_lookup_count <= fd)
     _expand_fd_lookup(fd);

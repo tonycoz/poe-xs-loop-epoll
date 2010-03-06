@@ -51,6 +51,21 @@ The epoll_ctl() call returns an error when you attempt to poll regular
 files, POE::XS::Loop::EPoll emulate's poll(2)'s behaviour with regular
 files under Linux - ie. they're always readable/writeable.
 
+If you see an error:
+
+  POE::XS::Loop::EPoll hasn't been initialized correctly
+
+then the loop hasn't been loaded correctly, in POE <= 1.287 the
+following:
+
+  # this doesn't work
+  use POE qw(XS::Loop::EPoll);
+
+will not load the loop correctly, you will need to do:
+
+  use POE::Kernel { loop => 'POE::XS::Loop::EPoll' };
+  use POE;
+
 =head1 SEE ALSO
 
 POE, POE::Loop, POE::XS::Loop::Poll.

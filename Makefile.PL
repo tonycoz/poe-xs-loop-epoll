@@ -69,7 +69,7 @@ my %opts =
    OBJECT => 'EPoll.o alloc.o poexs.o',
    PREREQ_PM => {
 		 'POE'    => 1.003,
-		 'POE::Test::Loops' => 1.002,
+		 'POE::Test::Loops' => 1.033,
 		},
    test => {
 	    TESTS => 't/poe_xs_loop_epoll/*.t',

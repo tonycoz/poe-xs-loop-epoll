@@ -114,7 +114,7 @@ static void
 lp_loop_initialize(SV *kernel) {
   int i;
 
-  POE_TRACE_CALL(("<cl> loop_initialize()\n"));
+  POE_TRACE_CALL(("<cl> loop_initialize()"));
 
   if (epoll_fd != -1) {
     warn("loop_initialize() called while loop is active");
@@ -147,7 +147,7 @@ lp_loop_initialize(SV *kernel) {
 
 static void
 lp_loop_finalize(SV *kernel) {
-  POE_TRACE_CALL(("<cl> loop_finalize()\n"));
+  POE_TRACE_CALL(("<cl> loop_finalize()"));
 
   CHECK_STATE();
 
@@ -376,7 +376,7 @@ wrap_ctl(int entry) {
 
       if (fstat(event.data.fd, &st) == 0
 	  && S_ISREG(st.st_mode)) {
-	POE_TRACE_FILE(("<fh>  fd %d is a regular file - emulating events\n", 
+	POE_TRACE_FILE(("<fh>  fd %d is a regular file - emulating events", 
 			event.data.fd));
 	++reg_file_count;
 	fds[entry].reg_file = 1;
@@ -439,7 +439,7 @@ lp_loop_do_timeslice(SV *kernel) {
   
   LOOP_CHECK_INITIALIZED();
 
-  POE_TRACE_CALL(("<cl> loop_do_timeslice()\n"));
+  POE_TRACE_CALL(("<cl> loop_do_timeslice()"));
 
   events = mymalloc(sizeof(struct epoll_event) * check_count);
 
@@ -486,18 +486,19 @@ lp_loop_do_timeslice(SV *kernel) {
   }
 
 #ifdef XS_LOOP_TRACE
-  {
+  if (poe_tracing_files()) {
     int i;
-    POE_TRACE_FILE(("<fh> ,---- XS EPOLL FDS IN ----\n"));
+    SV *fd_sv = sv_2mortal(newSVpv("<fh> ,---- XS EPOLL FDS IN ----\n", 0));
     for (i = 0; i < fd_count; ++i) {
-      POE_TRACE_FILE(("<fh>  fd %3d mask %x (%s)%s\n", fds[i].fd, 
-		      fds[i].want_events, epoll_mode_names(fds[i].want_events),
-		      fds[i].reg_file ? " (regular file)" : ""));
+      sv_catpvf(fd_sv, "<fh>  fd %3d mask %x (%s)%s\n", fds[i].fd, 
+		fds[i].want_events, epoll_mode_names(fds[i].want_events),
+		fds[i].reg_file ? " (regular file)" : "");
     }
     if (reg_file_count) {
-      POE_TRACE_FILE(("<fh>   %d regular files\n", reg_file_count));
+      sv_catpvf(fd_sv, "<fh>   %d regular files\n", reg_file_count);
     }
-    POE_TRACE_FILE(("<fh> `-------------------------\n"));
+    sv_catpvf(fd_sv, "<fh> `-------------------------");
+    POE_TRACE_FILE((POE_SV_FORMAT, fd_sv);
   }
 #endif
   POE_TRACE_EVENT(("<ev> Kernel::run() iterating (XS) now(%.4f) timeout(%.4f)"
@@ -506,16 +507,17 @@ lp_loop_do_timeslice(SV *kernel) {
   errno_save = errno;
 
 #ifdef XS_LOOP_TRACE
-  {
+    if (poe_tracing_files()) {
     int i;
-    POE_TRACE_FILE(("<fh> epoll_wait() => %d\n", count));
-    POE_TRACE_FILE(("<fh> /---- XS EPOLL FDS OUT ----\n"));
+    SV *fd_sv = sv_2mortal(newSVpvf("<fh> epoll_wait() => %d\n", count));
+    sv_catpv(fd_sv, "<fh> /---- XS EPOLL FDS OUT ----\n");
     for (i = 0; i < count; ++i) {
-      POE_TRACE_FILE(("<fh> | Index %d fd %d mask %x (%s)\n", i,
-		      events[i].data.fd, events[i].events, epoll_mode_names(events[i].events)));
+      sv_catpvf(fd_sv, "<fh> | Index %d fd %d mask %x (%s)\n", i,
+		events[i].data.fd, events[i].events, epoll_mode_names(events[i].events));
 		      
     }
-    POE_TRACE_FILE(("<fh> `-------------------------\n"));
+    sv_catpv(fd_sv, "<fh> `-------------------------"));
+    POE_TRACE_FILE((POE_SV_FORMAT, fd_sv));
   }
 #endif
 
@@ -579,7 +581,7 @@ lp_loop_do_timeslice(SV *kernel) {
 
 static void
 lp_loop_run(SV *kernel) {
-  POE_TRACE_CALL(("<cl> loop_run()\n"));
+  POE_TRACE_CALL(("<cl> loop_run()"));
   while (poe_data_ses_count(kernel)) {
     lp_loop_do_timeslice(kernel);
   }
@@ -589,7 +591,7 @@ static void
 lp_loop_resume_time_watcher(double next_time) {
   LOOP_CHECK_INITIALIZED();
 
-  POE_TRACE_CALL(("<cl> loop_resume_time_watcher(%.3f) %.3f from now\n",
+  POE_TRACE_CALL(("<cl> loop_resume_time_watcher(%.3f) %.3f from now",
 	  next_time, next_time - time_h()));
   lp_next_time = next_time;
 }
@@ -598,7 +600,7 @@ static void
 lp_loop_reset_time_watcher(double next_time) {
   LOOP_CHECK_INITIALIZED();
 
-  POE_TRACE_CALL(("<cl> loop_reset_time_watcher(%.3f) %.3f from now\n", 
+  POE_TRACE_CALL(("<cl> loop_reset_time_watcher(%.3f) %.3f from now", 
 	  next_time, next_time - time_h()));
   lp_next_time = next_time;
 }
@@ -607,7 +609,7 @@ static void
 lp_loop_pause_time_watcher(SV *kernel) {
   LOOP_CHECK_INITIALIZED();
 
-  POE_TRACE_CALL(("<cl> loop_pause_time_watcher()\n"));
+  POE_TRACE_CALL(("<cl> loop_pause_time_watcher()"));
   lp_next_time = 0;
 }
 
@@ -622,7 +624,7 @@ lp_loop_watch_filehandle(PerlIO *handle, int mode) {
   if (fd_lookup_count <= fd)
     _expand_fd_lookup(fd);
 
-  POE_TRACE_CALL(("<cl> loop_watch_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
+  POE_TRACE_CALL(("<cl> loop_watch_filehandle(%d, %d %s)", fd, mode, poe_mode_names(mode)));
 
   entry = _make_fd_entry(fd);
   fds[entry].want_events |= mask;
@@ -638,10 +640,10 @@ lp_loop_ignore_filehandle(PerlIO *handle, int mode) {
   
   LOOP_CHECK_INITIALIZED();
 
-  POE_TRACE_CALL(("<cl> loop_ignore_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
+  POE_TRACE_CALL(("<cl> loop_ignore_filehandle(%d, %d %s)", fd, mode, poe_mode_names(mode)));
 
   if (entry == -1) {
-    POE_TRACE_FILE(("<fh> loop_ignore_filehandle: attempt to remove unwatched filehandle\n"));
+    POE_TRACE_FILE(("<fh> loop_ignore_filehandle: attempt to remove unwatched filehandle"));
     return;
   }
 
@@ -671,10 +673,10 @@ lp_loop_pause_filehandle(PerlIO *handle, int mode) {
   int fd = PerlIO_fileno(handle);
   int entry = _get_fd_entry(fd);
   
-  POE_TRACE_CALL(("<cl> loop_pause_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
+  POE_TRACE_CALL(("<cl> loop_pause_filehandle(%d, %d %s)", fd, mode, poe_mode_names(mode)));
 
   if (entry == -1) {
-    POE_TRACE_FILE(("loop_pause_filehandle: attempt to remove unwatched filehandle\n"));
+    POE_TRACE_FILE(("loop_pause_filehandle: attempt to remove unwatched filehandle"));
     return;
   }
 
@@ -692,7 +694,7 @@ lp_loop_resume_filehandle(PerlIO *handle, int mode) {
   if (fd_lookup_count <= fd)
     _expand_fd_lookup(fd);
 
-  POE_TRACE_CALL(("<cl> loop_resume_filehandle(%d, %d %s)\n", fd, mode, poe_mode_names(mode)));
+  POE_TRACE_CALL(("<cl> loop_resume_filehandle(%d, %d %s)", fd, mode, poe_mode_names(mode)));
 
   entry = _make_fd_entry(fd);
   fds[entry].want_events |= _epoll_from_poe_mode(mode);

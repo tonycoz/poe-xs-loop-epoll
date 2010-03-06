@@ -487,5 +487,59 @@ poexs_data_stat_add(SV *kernel, const char *name, double value) {
   LEAVE;
 }
 
+/*
+=item poe_tracing_files()
+
+Returns non-zero if file tracing is enabled.
+
+Only available if XS_LOOP_TRACE is defined.
+
+=cut
+*/
+
+int
+poe_tracing_files(void) {
+  if (!trace_initialized)
+    do_trace_initialize();
+
+  return trace_files;
+}
+
+/*
+=item poe_tracing_events()
+
+Returns non-zero if event tracing is enabled.
+
+Only available if XS_LOOP_TRACE is defined.
+
+=cut
+*/
+
+int
+poe_tracing_events(void) {
+  if (!trace_initialized)
+    do_trace_initialize();
+
+  return trace_events;
+}
+
+/*
+=item poe_tracing_calls()
+
+Returns non-zero if call tracing is enabled.
+
+Only available if XS_LOOP_TRACE is defined.
+
+=cut
+*/
+
+int
+poe_tracing_calls(void) {
+  if (!trace_initialized)
+    do_trace_initialize();
+
+  return trace_calls;
+}
+
 #endif
 

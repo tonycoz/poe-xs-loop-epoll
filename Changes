@@ -1,4 +1,25 @@
 This is the change history of POE::XS::Loop::EPoll.
 
+1.000 
+
+ - use META_MERGE in Makefile.PL instead of the obsolete EXTRA_META
+   https://rt.cpan.org/Ticket/Display.html?id=39700
+
+ - croak if loop methods are called when the loop hasn't been initialized
+   https://rt.cpan.org/Ticket/Display.html?id=55063
+
+ - treat EPOLLHUP events as read events
+   https://rt.cpan.org/Ticket/Display.html?id=53474
+
+ - if we notice a change in process id, assume the epoll fd has been
+   cloned, close it (for this process) and reload it with the events
+   we're watching.
+   https://rt.cpan.org/Ticket/Display.html?id=53474
+
+ - removing trailing newlines from trace output to avoid doubled PIDs
+   in the output
+
+ - disable assertions which 0.001 shipped with.
+
 0.001 Fri Aug 15 18:53:01 EST 2008
  - initial release

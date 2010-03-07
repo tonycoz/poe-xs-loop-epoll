@@ -1,6 +1,6 @@
 This is the change history of POE::XS::Loop::EPoll.
 
-1.001
+1.001 Sun Mar  7 13:17:17 EST 2010
 
  - don't mortalize the temp svs we use in tracing, we might be inside
    lp_loop_run(), and the SVs won't be released until that returns.

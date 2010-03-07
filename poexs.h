@@ -16,6 +16,9 @@
 #endif
 
 extern void
+poe_initialize(void);
+
+extern void
 poe_enqueue_data_ready(SV *kernel, int mode, int *fds, int fd_count);
 
 extern void

@@ -1,5 +1,7 @@
 #include "poexs.h"
 
+static NV (*th_nvtime)(void);
+
 /*
 =head1 NAME
 
@@ -54,6 +56,21 @@ formatting SVs.
 
 =over
 
+=item poe_initialize()
+
+=cut
+*/
+
+void
+poe_initialize(void) {
+  SV **svp = hv_fetch(PL_modglobal, "Time::NVtime", 12, 0);
+  if (svp && SvIOK(*svp)) {
+    POE_TRACE_CALL(("<cl> Using Time::HiRes for time"));
+    th_nvtime = INT2PTR(NV (*)(void), SvIV(*svp));
+  }
+}
+
+/*
 =item poe_enqueue_data_ready(kernel, mode, fds, fd_count)
 
 Calls the _enqueue_data_ready() perl method on the given kernel
@@ -99,9 +116,7 @@ poe_enqueue_data_ready(SV *kernel, int mode, int *fds, int fd_count) {
   int i;
 
 #ifdef XS_LOOP_TRACE
-  TRACE_INITIALIZE();
-
-  if (trace_calls) {
+  if (poe_tracing_calls()) {
     SV *sv = newSVpvf("<cl> poe_enqueue_data_ready(mode %d (%s)", mode, poe_mode_names(mode));
     for (i = 0; i < fd_count; ++i) {
       sv_catpvf(sv, ", %d", fds[i]);
@@ -276,11 +291,16 @@ Returns the current epoch time as a floating point value.
 
 double
 poe_timeh(void) {
-  struct timeval tv;
-
-  gettimeofday(&tv, NULL);
-
-  return tv.tv_sec + 1e-6 * tv.tv_usec;
+  if (th_nvtime) {
+    return th_nvtime();
+  }
+  else {
+    struct timeval tv;
+    
+    gettimeofday(&tv, NULL);
+    
+    return tv.tv_sec + 1e-6 * tv.tv_usec;
+  }
 }
 
 /*
@@ -542,4 +562,3 @@ poe_tracing_calls(void) {
 }
 
 #endif
-

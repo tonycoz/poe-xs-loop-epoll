@@ -58,9 +58,6 @@ static double lp_next_time;
 static double lp_start_time;
 #endif
 
-static double
-time_h(void);
-
 typedef struct {
   int fd;
 
@@ -114,6 +111,8 @@ static void
 lp_loop_initialize(SV *kernel) {
   int i;
 
+  poe_initialize();
+
   POE_TRACE_CALL(("<cl> loop_initialize()"));
 
   if (epoll_fd != -1) {
@@ -141,7 +140,7 @@ lp_loop_initialize(SV *kernel) {
   CHECK_STATE();
 
 #ifdef XS_LOOP_TRACE
-  lp_start_time = time_h();
+  lp_start_time = poe_timeh();
 #endif
 }
 
@@ -265,15 +264,6 @@ _queue_fd_change(int entry) {
     fd_queue[fd_queue_size++] = fd;
     fds[entry].queued = 1;
   }
-}
-
-static double
-time_h(void) {
-  struct timeval tv;
-
-  gettimeofday(&tv, NULL);
-
-  return tv.tv_sec + 1e-6 * tv.tv_usec;
 }
 
 static int
@@ -463,7 +453,7 @@ lp_loop_do_timeslice(SV *kernel) {
   }
   fd_queue_size = 0;
 
-  now = time_h();
+  now = poe_timeh();
   if (lp_next_time) {
     delay = lp_next_time - now;
     if (delay > 3600)
@@ -592,7 +582,7 @@ lp_loop_resume_time_watcher(double next_time) {
   LOOP_CHECK_INITIALIZED();
 
   POE_TRACE_CALL(("<cl> loop_resume_time_watcher(%.3f) %.3f from now",
-	  next_time, next_time - time_h()));
+	  next_time, next_time - poe_timeh()));
   lp_next_time = next_time;
 }
 
@@ -601,7 +591,7 @@ lp_loop_reset_time_watcher(double next_time) {
   LOOP_CHECK_INITIALIZED();
 
   POE_TRACE_CALL(("<cl> loop_reset_time_watcher(%.3f) %.3f from now", 
-	  next_time, next_time - time_h()));
+	  next_time, next_time - poe_timeh()));
   lp_next_time = next_time;
 }
 

@@ -1,5 +1,13 @@
 This is the change history of POE::XS::Loop::EPoll.
 
+1.001
+
+ - don't mortalize the temp svs we use in tracing, we might be inside
+   lp_loop_run(), and the SVs won't be released until that returns.
+   Use SvREFCNT_dec() instead.
+
+ - use the poexs time function instead of defining our own.
+
 1.000 
 
  - use META_MERGE in Makefile.PL instead of the obsolete EXTRA_META

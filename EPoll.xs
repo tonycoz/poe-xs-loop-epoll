@@ -478,7 +478,7 @@ lp_loop_do_timeslice(SV *kernel) {
 #ifdef XS_LOOP_TRACE
   if (poe_tracing_files()) {
     int i;
-    SV *fd_sv = sv_2mortal(newSVpv("<fh> ,---- XS EPOLL FDS IN ----\n", 0));
+    SV *fd_sv = newSVpv("<fh> ,---- XS EPOLL FDS IN ----\n", 0);
     for (i = 0; i < fd_count; ++i) {
       sv_catpvf(fd_sv, "<fh>  fd %3d mask %x (%s)%s\n", fds[i].fd, 
 		fds[i].want_events, epoll_mode_names(fds[i].want_events),
@@ -489,6 +489,7 @@ lp_loop_do_timeslice(SV *kernel) {
     }
     sv_catpvf(fd_sv, "<fh> `-------------------------");
     POE_TRACE_FILE((POE_SV_FORMAT, fd_sv);
+    SvREFCNT_dec(fd_sv);
   }
 #endif
   POE_TRACE_EVENT(("<ev> Kernel::run() iterating (XS) now(%.4f) timeout(%.4f)"
@@ -499,7 +500,7 @@ lp_loop_do_timeslice(SV *kernel) {
 #ifdef XS_LOOP_TRACE
     if (poe_tracing_files()) {
     int i;
-    SV *fd_sv = sv_2mortal(newSVpvf("<fh> epoll_wait() => %d\n", count));
+    SV *fd_sv = newSVpvf("<fh> epoll_wait() => %d\n", count);
     sv_catpv(fd_sv, "<fh> /---- XS EPOLL FDS OUT ----\n");
     for (i = 0; i < count; ++i) {
       sv_catpvf(fd_sv, "<fh> | Index %d fd %d mask %x (%s)\n", i,
@@ -508,6 +509,7 @@ lp_loop_do_timeslice(SV *kernel) {
     }
     sv_catpv(fd_sv, "<fh> `-------------------------"));
     POE_TRACE_FILE((POE_SV_FORMAT, fd_sv));
+    SvREFCNT_dec(fd_sv);
   }
 #endif
 

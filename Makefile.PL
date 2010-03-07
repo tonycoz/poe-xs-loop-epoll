@@ -69,7 +69,6 @@ my %opts =
    OBJECT => 'EPoll.o alloc.o poexs.o',
    PREREQ_PM => {
 		 'POE'    => 1.003,
-		 'POE::Test::Loops' => 1.033,
 		},
    test => {
 	    TESTS => 't/poe_xs_loop_epoll/*.t',
@@ -117,8 +116,8 @@ if ($eu_mmv > 6.3001) {
 if ($eu_mmv >= 6.46) {
   $opts{META_MERGE} = 
     {
-     configure_requires => { "POE::Test::Loops" => "1.002" },
-     build_requires => { "POE::Test::Loops" => "1.002" },
+     configure_requires => { "POE::Test::Loops" => "1.033" },
+     build_requires => { "POE::Test::Loops" => "1.033" },
      resources =>
      { repository => "http://imager.perl.org/svn/trunk/POE-XS-Loop-EPoll" },
     };

@@ -73,7 +73,7 @@ my %opts =
    test => {
 	    TESTS => 't/poe_xs_loop_epoll/*.t',
 	   },
-   clean => { FILES => 't/poe_xs_loop_epoll/*.t' },
+   clean => { FILES => 't/poe_xs_loop_epoll/*.t ' . $marker },
   );
 my $eu_mmv = eval $ExtUtils::MakeMaker::VERSION;
 if ($eu_mmv > 6.06) {

@@ -121,6 +121,9 @@ lp_loop_initialize(SV *kernel) {
 
   lp_next_time = 0;
   epoll_fd = epoll_create(START_FD_ALLOC);
+  if (epoll_fd == -1) {
+    poe_trap("<fh> epoll_create() failed: " POE_SV_FORMAT, get_sv("!", 0));
+  }
   fds = mymalloc(sizeof(*fds) * START_FD_ALLOC);
   fd_count = 0;
   fd_alloc = START_FD_ALLOC;

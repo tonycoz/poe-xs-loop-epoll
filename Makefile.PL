@@ -3,9 +3,25 @@ use strict;
 use ExtUtils::MakeMaker;
 use Getopt::Long;
 use POE::Test::Loops 1.001;
+use lib 'inc';
+use Devel::CheckLib;
 
 unless ($^O eq 'linux') {
   die "OS unsupported: this module requires Linux\n";
+}
+
+# epoll isn't available in all architectures until fairly recently
+my %lib_opts =
+  (
+   header => "sys/epoll.h",
+   function => <<'CODE',
+int fd = epoll_create(10);
+
+return fd == -1 ? 1 : 0;
+CODE
+  );
+unless (eval { assert_lib(%lib_opts); 1 }) {
+  die "OS unsupported: your Linux doesn't appear to have epoll support\n";
 }
 
 my $trace;

@@ -10,3 +10,7 @@
 \.bak$
 ^Makefile$
 ^t/poe_xs_loop_epoll/
+^POE-XS-Loop-EPoll
+^Makefile\.old$
+^typescript$
+^\.#

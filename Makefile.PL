@@ -14,6 +14,7 @@ unless ($^O eq 'linux') {
 my %lib_opts =
   (
    header => "sys/epoll.h",
+   lib => "c",
    function => <<'CODE',
 int fd = epoll_create(10);
 
@@ -21,6 +22,7 @@ return fd == -1 ? 1 : 0;
 CODE
   );
 unless (eval { assert_lib(%lib_opts); 1 }) {
+  print $@;
   die "OS unsupported: your Linux doesn't appear to have epoll support\n";
 }
 

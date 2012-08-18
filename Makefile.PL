@@ -2,7 +2,7 @@
 use strict;
 use ExtUtils::MakeMaker;
 use Getopt::Long;
-use POE::Test::Loops 1.001;
+use POE::Test::Loops 1.033;
 use lib 'inc';
 use Devel::CheckLib;
 
@@ -123,7 +123,7 @@ for runtime POE tracing of the loop code
 TRACEMSG
 }
 
-# LICENSE was introduced in 6.30_01, but Debian etch includes
+# LICENSE was introduced in 6.30_01, but Debian etch included
 # (as of 2007/01/12) an ExtUtils::MakeMaker versioned 6.30_01 without
 # LICENSE support
 if ($eu_mmv > 6.3001) {
@@ -137,7 +137,7 @@ if ($eu_mmv >= 6.46) {
      configure_requires => { "POE::Test::Loops" => "1.033" },
      build_requires => { "POE::Test::Loops" => "1.033" },
      resources =>
-     { repository => "http://imager.perl.org/svn/trunk/POE-XS-Loop-EPoll" },
+     { repository => "git://github.com/tonycoz/poe-xs-loop-epoll.git" },
     };
 }
 

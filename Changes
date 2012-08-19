@@ -1,5 +1,7 @@
 This is the change history of POE::XS::Loop::EPoll.
 
+1.002 Sun Aug 19 13:07:14 EST 2012
+
  - moved to git:
    https://github.com/tonycoz/poe-xs-loop-epoll
 

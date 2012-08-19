@@ -3,6 +3,10 @@ This is the change history of POE::XS::Loop::EPoll.
  - moved to git:
    https://github.com/tonycoz/poe-xs-loop-epoll
 
+ - fix a logic bug in a range check.  This could cause a crash.
+   https://rt.cpan.org/Ticket/Display.html?id=79013
+   Thanks to Thomas Edward Alexander Molesworth for reporting this.
+
 1.001_02 Fri Mar 19 18:42:18 EST 2010
 
  - Devel::CheckLib:: assert_lib() only runs the test code when you

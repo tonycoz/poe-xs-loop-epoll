@@ -191,7 +191,7 @@ _expand_fds(void) {
 
 static int
 _get_fd_entry(int fd) {
-  if (fd < 0 && fd >= fd_lookup_count)
+  if (fd < 0 || fd >= fd_lookup_count)
     return -1;
 
   return fd_lookup[fd];

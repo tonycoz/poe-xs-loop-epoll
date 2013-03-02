@@ -74,6 +74,14 @@ POE, POE::Loop, POE::XS::Loop::Poll.
 
 Relies upon small fd numbers, but then a lot of code does.
 
+New bugs should be reported via request tracker, either mail to:
+
+  bug-POE-XS-Loop-EPoll@rt.cpan.org
+
+or using the form at:
+
+  https://rt.cpan.org/Ticket/Create.html?Queue=POE-XS-Loop-EPoll
+
 =head1 LICENSE
 
 POE::XS::Loop::EPoll is licensed under the same terms as Perl itself.

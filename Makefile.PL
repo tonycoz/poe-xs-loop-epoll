@@ -137,7 +137,10 @@ if ($eu_mmv >= 6.46) {
      configure_requires => { "POE::Test::Loops" => "1.033" },
      build_requires => { "POE::Test::Loops" => "1.033" },
      resources =>
-     { repository => "git://github.com/tonycoz/poe-xs-loop-epoll.git" },
+     {
+      repository => "git://github.com/tonycoz/poe-xs-loop-epoll.git",
+      bugtracker => "http://rt.cpan.org/Public/Dist/Display.html?Name=POE-XS-Loop-EPoll",
+     },
     };
 }
 

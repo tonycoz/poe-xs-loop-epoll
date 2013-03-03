@@ -7,6 +7,8 @@ This is the change history of POE::XS::Loop::EPoll.
 
  - document that issues should be submitted through RT.
 
+ - require XSLoader and don't fall back to DynaLoader.
+
 1.002 Sun Aug 19 13:07:14 EST 2012
 
  - moved to git:

@@ -1,5 +1,12 @@
 This is the change history of POE::XS::Loop::EPoll.
 
+1.003
+
+ - update the bundled Devel::CheckLib to support 5.17.x development
+   perls
+
+ - document that issues should be submitted through RT.
+
 1.002 Sun Aug 19 13:07:14 EST 2012
 
  - moved to git:

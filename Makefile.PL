@@ -85,9 +85,11 @@ my %opts =
    NAME => 'POE::XS::Loop::EPoll',
    VERSION_FROM => 'lib/POE/XS/Loop/EPoll.pm',
    OBJECT => 'EPoll.o alloc.o poexs.o',
-   PREREQ_PM => {
-		 'POE'    => 1.003,
-		},
+   PREREQ_PM =>
+   {
+    'POE'      => 1.003,
+    'XSLoader' => 0
+   },
    test => {
 	    TESTS => 't/poe_xs_loop_epoll/*.t',
 	   },

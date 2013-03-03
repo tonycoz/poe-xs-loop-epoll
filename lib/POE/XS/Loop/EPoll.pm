@@ -8,16 +8,8 @@ BEGIN {
     *POE::Kernel::TRACE_CALLS = sub () { 0 };
   }
   $VERSION = '1.002';
-  eval {
-    # try XSLoader first, DynaLoader has annoying baggage
-    require XSLoader;
-    XSLoader::load('POE::XS::Loop::EPoll' => $VERSION);
-    1;
-  } or do {
-    require DynaLoader;
-    push @ISA, 'DynaLoader';
-    bootstrap POE::XS::Loop::EPoll $VERSION;
-  }
+  require XSLoader;
+  XSLoader::load('POE::XS::Loop::EPoll' => $VERSION);
 }
 
 require POE::Loop::PerlSignals;

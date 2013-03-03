@@ -1,6 +1,6 @@
 This is the change history of POE::XS::Loop::EPoll.
 
-1.003
+1.003 Sun Mar  3 12:58:26 EST 2013
 
  - update the bundled Devel::CheckLib to support 5.17.x development
    perls

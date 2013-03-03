@@ -7,7 +7,7 @@ BEGIN {
     # noisy
     *POE::Kernel::TRACE_CALLS = sub () { 0 };
   }
-  $VERSION = '1.002';
+  $VERSION = '1.003';
   require XSLoader;
   XSLoader::load('POE::XS::Loop::EPoll' => $VERSION);
 }
